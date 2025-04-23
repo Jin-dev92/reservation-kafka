@@ -1,0 +1,6 @@
+[submodule "client"]
+	path = client
+	url = https://github.com/Jin-dev92/reservation-kafka-client-react-vite.git
+[submodule "server"]
+	path = server
+	url = https://github.com/Jin-dev92/reservation-kafka-server-springboot-kt.git

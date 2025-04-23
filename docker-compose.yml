@@ -1,0 +1,35 @@
+services:
+  db:
+    image: postgres:latest
+    ports:
+      - "5432:5432"
+    env_file:
+      - ./server/.env
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  api:
+    build: ./server
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  client:
+    build: ./client
+    ports:
+      - "3000:3000"
+    networks:
+      - app-network
+    restart: unless-stopped
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
