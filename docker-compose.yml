@@ -1,35 +1,118 @@
 services:
-  db:
-    image: postgres:latest
+  # ZooKeeper 서비스
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.3.0
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
     ports:
-      - "5432:5432"
-    env_file:
-      - ./server/.env
+      - "2181:2181"
     networks:
-      - app-network
-    restart: unless-stopped
+      - ticket-network
 
-  api:
-    build: ./server
-    ports:
-      - "8080:8080"
+  # Kafka 서비스
+  kafka:
+    image: confluentinc/cp-kafka:7.3.0
+    container_name: kafka
     depends_on:
-      - db
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
     networks:
-      - app-network
-    restart: unless-stopped
+      - ticket-network
 
-  client:
-    build: ./client
+  # Kafka UI - 카프카 모니터링 도구
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    depends_on:
+      - kafka
+    ports:
+      - "8090:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+    networks:
+      - ticket-network
+
+  # Ticket Reservation 서비스
+  ticket-service:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: ticket-service
+    depends_on:
+      - kafka
+    ports:
+      - "8001:8080"
+    environment:
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_DATASOURCE_URL: jdbc:h2:mem:ticketdb
+      SERVER_PORT: 8080
+    networks:
+      - ticket-network
+    volumes:
+      - ./server/logs:/app/logs
+
+  # Ticket Reservation client
+  ticket-client:
+    build:
+      context: ./client
+      dockerfile: DockerFile
+    container_name: ticket-client
+    networks:
+      - ticket-network
+    ports:
+      - "3001:5173"
+    volumes:
+      - /app/node_modules
+      - ./client:/app
+  # Prometheus - 메트릭 수집
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./server/prometheus:/etc/prometheus
+      - prometheus-data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+    networks:
+      - ticket-network
+
+  # Grafana - 모니터링 대시보드
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
     ports:
       - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./server/grafana/provisioning:/etc/grafana/provisioning
     networks:
-      - app-network
-    restart: unless-stopped
+      - ticket-network
+    depends_on:
+      - prometheus
 
 networks:
-  app-network:
+  ticket-network:
     driver: bridge
 
 volumes:
-  postgres-data:
+  prometheus-data:
+  grafana-data:
